@@ -1,6 +1,6 @@
 ---
 name: naoqi-2-5-10-7
-description: Use when writing, debugging, or reviewing Python code that talks to a NAO or Pepper robot via the NAOqi SDK on NAOqi OS 2.5.10.7 (ALProxy or qi framework, ALMotion/ALTextToSpeech/ALVideoDevice/ALMemory/ALRobotPosture/etc, event subscriptions, sync vs async calls, deployment to the robot).
+description: Use when writing, debugging, or reviewing code for a NAO or Pepper robot on NAOqi OS 2.5.10.7 — both Python against the NAOqi SDK (ALProxy or qi framework, ALMotion/ALTextToSpeech/ALVideoDevice/ALMemory/ALRobotPosture/etc, event subscriptions, sync vs async calls, deployment) and Choregraphe .xar behaviors/boxes, including the strict constraints of the Choregraphe virtual robot (no python-script boxes; keyframe animation only).
 ---
 
 # NAOqi 2.5.10.7
@@ -139,9 +139,65 @@ reaction = ReactionModule("reaction")
   the robot's own Python 2.7 and installed `naoqi` module are used — no pip
   installs of third-party packages are available unless manually placed on
   the robot's filesystem.
-- **Choregraphe boxes**: Python code embedded in Choregraphe boxes runs
-  inside NAOqi's process and receives `self` with `self.getParentBroker()`
-  already wired up — don't create a new `ALBroker` inside a box's script.
+- **Choregraphe boxes (physical robot)**: Python code embedded in Choregraphe
+  boxes runs inside NAOqi's process and receives `self` with
+  `self.getParentBroker()` already wired up — don't create a new `ALBroker`
+  inside a box's script. **This only holds on a physical robot** — on the
+  Choregraphe virtual robot, a box that contains a python script at all fails
+  to load (see the section below).
+
+## Virtual robot (Choregraphe) constraints
+
+When the target is the **Choregraphe virtual robot** (no physical NAO/Pepper),
+a large part of the API silently does nothing or hard-fails. Confirm which
+target you're on before writing behaviors.
+
+- **No box may contain a python script.** Any Choregraphe box whose
+  `<script language="4">` holds real code — *including the default
+  `class MyClass(GeneratedClass)` boilerplate that stock library boxes ship
+  with* — crashes on load with:
+
+  ```
+  NameError: name 'ALBehavior' is not defined
+  FMBox::createPythonModule
+  ```
+
+  The trigger is the box creating a python module *at all*, not anything the
+  script does. This reproduces on stock, unedited boxes (e.g. the "Say" box and
+  the library "Goto Posture" box).
+
+- **Verified-working pattern:** keyframed animation boxes with an **empty**
+  script and a `<Timeline>` of `ActuatorCurve` keys:
+
+  ```xml
+  <script language="4"><content><![CDATA[]]></content></script>
+  ```
+
+  When pulling a box out of the Choregraphe library, **strip its `MyClass`
+  boilerplate script** before wiring it in, or the behavior won't load.
+
+- **Confirmed broken on the virtual robot** — do not rely on these (flag to the
+  user before using any `ALProxy`-based box):
+  - `ALTextToSpeech` / stock "Say" box — no audio out
+  - `ALRobotPosture` / stock "Goto Posture" box — so there's **no way to send
+    the robot to `StandInit`**; animations must start from whatever pose the
+    robot is already in
+  - `ALVideoDevice` / camera / vision
+  - real touch / sonar / FSR sensors
+  - audio input / speech recognition
+
+- Don't assume any `ALProxy`-based box works on the virtual robot; the
+  keyframe-animation boxes above are the only verified-safe building block.
+
+## Reference docs and library paths
+
+- **Docs version matters.** Use `http://doc.aldebaran.com/2-5/` as the
+  documentation root for NAOqi 2.5.x — *not* `2-1` or `2-4`, which describe
+  older SDK/Choregraphe versions and can give wrong API/behavior details.
+- **Predefined Choregraphe behaviors/libraries** ship at (Suite 2.5, Windows):
+  `C:\Program Files (x86)\Softbank Robotics\Choregraphe Suite 2.5\share\choregraphe\libraries`
+  Check here for an existing box/animation before writing a new one — but strip
+  any embedded script before using it on the virtual robot (see above).
 
 ## When helping with this code
 
