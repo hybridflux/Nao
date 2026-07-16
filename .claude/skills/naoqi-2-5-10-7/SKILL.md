@@ -194,6 +194,28 @@ target you're on before writing behaviors.
 - **Docs version matters.** Use `http://doc.aldebaran.com/2-5/` as the
   documentation root for NAOqi 2.5.x — *not* `2-1` or `2-4`, which describe
   older SDK/Choregraphe versions and can give wrong API/behavior details.
+- **Local offline mirror (prefer this over the web).** The full 2-5 doc site is
+  mirrored at
+  `C:\Users\shman\Claude\Sample\Pepper\Pepperdocs\doc.aldebaran.com\2-5\`
+  — consult it with Read/Grep/Glob instead of fetching the (slow, may vanish)
+  website. Layout highlights:
+  - `naoqi\<category>\<module>.html` — module overview;
+    `<module>-api.html` — full method/event/signal reference. Categories:
+    `audio`, `core`, `motion`, `vision`, `sensors`, `interaction` (dialog,
+    autonomous life/abilities under subdirs), `peopleperception`,
+    `connectionmanager`, `diagnosis`, `trackers`.
+    E.g. `naoqi\audio\altexttospeech-api.html`, `naoqi\core\almemory-api.html`.
+  - `naoqi\index.html` — index of all AL modules.
+  - `dev\` — SDK/programming guides (Python SDK setup, C++ SDK, `dev\naoqi\`
+    for NAOqi framework concepts).
+  - `software\choregraphe\` — Choregraphe suite docs (boxes, timelines, .xar).
+  - `family\` — hardware docs per robot model (Pepper 1.8 = `juliette`/actuator
+    naming, joints, LEDs, sensors).
+  - `ref\` — C++ library references (`libqi`, `libalmath`, `libalvalue`, …) and
+    `ref\python-api.html` for the Python SDK surface.
+  - Search example: `Grep -i "angleInterpolation" ...\2-5\naoqi\motion\`.
+  The HTML is Sphinx output — readable as plain text; ignore the boilerplate
+  nav markup.
 - **Predefined Choregraphe behaviors/libraries** ship at (Suite 2.5, Windows):
   `C:\Program Files (x86)\Softbank Robotics\Choregraphe Suite 2.5\share\choregraphe\libraries`
   Check here for an existing box/animation before writing a new one — but strip

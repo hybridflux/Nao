@@ -33,7 +33,8 @@ onboard computer is:
 | RAM | **4 GB**, shared with NAOqi/OS | ~2 GB realistically free → sub-2B models only |
 | GPU | none | CPU-only inference |
 | Storage | ~32 GB flash | Fine for a few small models |
-| OS | Gentoo-based Linux (NAOqi OS) | Old glibc/toolchain → **static binaries** are safest |
+| OS | Gentoo-based Linux (NAOqi OS), **32-bit i686** userland+kernel — confirmed | **32-bit build required**; 64-bit binaries will not run |
+| Kernel | **4.0.4-rt1-aldebaran-rt** (PREEMPT RT) — confirmed | New enough for musl static binaries (musl needs ≥ 2.6) |
 | On-robot Python | **2.7 only** | Cannot host the modern AI stack directly → keep AI as separate binaries |
 
 **Realistic expectation:** single-digit tokens/sec, multi-second replies. A
@@ -96,9 +97,16 @@ Interpretation (verify BEFORE building anything — §7.0 gates the build on thi
 - `MemAvailable` under ~1.5 GB → cap model size accordingly.
 - `python` should report 2.7.x.
 
-> **These are unverified assumptions until the above output comes back.** The
-> recipe in §7 is written for a **64-bit x86** userland on a kernel new enough to
-> run an Alpine-built static binary. If either is false, use the CTC path (§7.0).
+> **CONFIRMED (2026-07-16)** from the robot:
+> `Linux Pepper 4.0.4-rt1-aldebaran-rt-00002-g2edd9f0 #1 SMP PREEMPT RT ... i686
+> Intel(R) Atom(TM) CPU E3845 @ 1.91GHz GenuineIntel GNU/Linux`
+> - **`i686`** → 32-bit userland+kernel → **all binaries must be 32-bit x86**
+>   (§7 below is written for this).
+> - **Kernel 4.0.4-rt1** → new enough for Alpine/musl static binaries.
+> - CPU = Atom **E3845** as assumed (Silvermont: SSE4.2, no AVX).
+>
+> Still to capture from §3: the `/proc/cpuinfo` `flags` line, `MemAvailable`,
+> `df -h /`, the `mount` flags for `/home`, and `python --version`.
 
 ---
 
@@ -164,13 +172,13 @@ runs on the robot. This costs ~2 minutes and de-risks arch/kernel/noexec all at
 once.
 
 ```sh
-# On the dev machine — build a static hello-world matching the §3 arch result.
-# 64-bit example (Alpine); for i686, use an i686 toolchain / -m32 instead.
+# On the dev machine — build a static hello-world for the CONFIRMED i686 target.
+# linux/386 Alpine: gcc targets 32-bit x86 natively (no -m32 gymnastics needed).
 printf '#include <stdio.h>\nint main(){puts("hello from pepper");return 0;}\n' > hello.c
-docker run --rm -v "$PWD":/out alpine:3.19 sh -c \
+docker run --rm --platform linux/386 -v "$PWD":/out alpine:3.19 sh -c \
   'apk add --no-cache build-base >/dev/null && \
    gcc -static -march=silvermont -O2 hello.c -o /out/hello'
-file hello                                   # expect "statically linked"
+file hello    # expect "ELF 32-bit LSB executable, Intel 80386 ... statically linked"
 
 scp hello nao@<pepper-ip>:/home/nao/
 ssh nao@<pepper-ip> 'chmod +x /home/nao/hello && /home/nao/hello'
@@ -193,17 +201,18 @@ Docker shortcut but is the known-good way to produce robot binaries. Point
 llama.cpp's CMake at the CTC as the cross toolchain; keep the same AVX-off /
 SSE4.2 CPU flags from §7.1.
 
-### 7.1 Build a static llama.cpp (SSE4.2, no AVX) — 64-bit x86 path
+### 7.1 Build a static llama.cpp (SSE4.2, no AVX) — 32-bit i686 path
 
-> Assumes §7.0 passed on a 64-bit userland. For i686, swap the arch flags for an
-> i686 target (`-m32`); if §7.0 failed, use the CTC (§7.0b) instead.
+> The robot is confirmed **i686** (§3), so everything is built in a
+> `linux/386` container. If §7.0 failed, use the CTC (§7.0b) instead.
 
 A fully static (musl) build avoids the robot's old glibc entirely. AVX is
-disabled and the target is `silvermont` (the E3845 microarch).
+disabled and the target is `silvermont` (the E3845 microarch — the flag works
+for 32-bit output too).
 
 ```sh
 # Run from an empty working dir on your dev machine (Git Bash / WSL).
-docker run --rm -v "$PWD":/out alpine:3.19 sh -c '
+docker run --rm --platform linux/386 -v "$PWD":/out alpine:3.19 sh -c '
 set -e
 apk add --no-cache build-base cmake git linux-headers
 git clone --depth 1 https://github.com/ggml-org/llama.cpp
@@ -228,15 +237,22 @@ cp build/bin/llama-cli build/bin/llama-bench build/bin/llama-server /out/
 > unknown `-D` flag is warned-and-ignored, not fatal. `-march=silvermont` is the
 > load-bearing part.
 
-Confirm it's static:
+32-bit caveats:
+- llama.cpp is not routinely CI-tested on i386 — if HEAD fails to compile,
+  pin an older release tag (e.g. `--branch <tag>` on the clone) or fall back
+  to the CTC (§7.0b).
+- A 32-bit process has ~3 GB of address space. Fine for the 0.5B Q4 model
+  (~0.4 GB mmap'd); one more reason to treat 1.5B as the ceiling.
+
+Confirm it's static and 32-bit:
 
 ```sh
-file llama-cli    # expect: "statically linked"
+file llama-cli    # expect: "ELF 32-bit ... Intel 80386 ... statically linked"
 ```
 
 **If the musl static build gives trouble** (rare, usually the server): fall back
-to a glibc `-static` build inside `ubuntu:16.04` (old glibc matches the robot),
-same CMake flags.
+to a glibc `-static` build inside `--platform linux/386 i386/ubuntu:16.04` (old
+32-bit glibc matches the robot), same CMake flags.
 
 ### 7.2 Get the model
 
